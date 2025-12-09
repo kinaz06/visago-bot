@@ -5,7 +5,12 @@ async function sendText(id, text) {
   await fetch(`https://graph.facebook.com/v19.0/me/messages?access_token=${PAGE_TOKEN}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ recipient: { id }, message: { text } })
+    body: JSON.stringify({
+      messaging_product: "instagram",
+      recipient: { id },
+      message: { text },
+      messaging_type: "RESPONSE"
+    })
   });
 }
 
@@ -18,14 +23,27 @@ export default async function handler(req, res) {
 
   if (req.method === "POST") {
     try {
-      const entries = req.body?.entry || [];
+      console.log("RAW_BODY", JSON.stringify(req.body)); // لوق تشخيصي
+
+      const entries = Array.isArray(req.body?.entry) ? req.body.entry : [];
       for (const e of entries) {
-        const msgs = e.messaging || e.changes?.[0]?.value?.messaging || [];
+        // IG يرسل داخل changes
+        const changes = Array.isArray(e?.changes) ? e.changes : [];
+        for (const c of changes) {
+          const v = c?.value || {};
+          const from = v?.from?.id || v?.sender?.id || v?.contact?.id;
+          const text = v?.message?.text || v?.messages?.[0]?.text || v?.message;
+          if (from && text) {
+            await sendText(from, "مرحبًا! نجهّز ملفات الفيزا (سياحة/دراسة/أعمال). ما النوع والدولة؟");
+          }
+        }
+        // احتياط: لو جاء بصيغة Messenger التقليدية
+        const msgs = Array.isArray(e?.messaging) ? e.messaging : [];
         for (const m of msgs) {
-          const sender = m.sender?.id;
-          const text = m.message?.text || "";
-          if (sender && m.message) {
-            await sendText(sender, "مرحبًا! نجهّز ملفات الفيزا (سياحة/دراسة/أعمال). ما النوع والدولة؟");
+          const from = m?.sender?.id;
+          const text = m?.message?.text;
+          if (from && text) {
+            await sendText(from, "مرحبًا! نجهّز ملفات الفيزا (سياحة/دراسة/أعمال). ما النوع والدولة؟");
           }
         }
       }
@@ -33,27 +51,5 @@ export default async function handler(req, res) {
     return res.status(200).send("OK");
   }
 
-  return res.status(405).send("Method Not Allowed");
-}
-export default async function handler(req, res) {
-  const VERIFY = process.env.META_VERIFY_TOKEN || "";
-
-  if (req.method === "GET") {
-    const mode = req.query["hub.mode"];
-    const token = req.query["hub.verify_token"];
-    const challenge = req.query["hub.challenge"];
-
-    console.log("VERIFY_SET:", !!VERIFY, {
-      mode,
-      token_len: (token || "").length,
-      verify_len: VERIFY.length,
-      match: token === VERIFY
-    });
-
-    if (mode === "subscribe" && token === VERIFY) return res.status(200).send(challenge);
-    return res.status(403).send("Forbidden");
-  }
-
-  if (req.method === "POST") return res.status(200).send("OK");
   return res.status(405).send("Method Not Allowed");
 }
